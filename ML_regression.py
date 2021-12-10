@@ -3,7 +3,10 @@ import pandas as pd
 import numpy as np
 from datetime import datetime
 import ML_functions as ML
+import random
 start_total_time = time.time()
+
+random.seed(123) # seed for reproducibility
 
 def warn(*args, **kwargs):
     pass
