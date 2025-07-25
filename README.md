@@ -8,23 +8,23 @@ Shiu Lab Machine Learning Pipeline
 <img src="_img/pipeline_summary.png" alt="ML-Pipeline Overview" width="300"/>
 
 ## Environment Requirements
-* biopython                 1.68
-* matplotlib                1.5.1
-* numpy                     1.11.3
-* pandas                    0.18.1
-* python                    3.4.4
-* scikit-learn              0.18.1
-* scipy                     0.18.1
+* biopython                 1.78
+* matplotlib                3.10.0
+* numpy                     1.26.4
+* pandas                    2.3.1
+* python                    3.11.13
+* scikit-learn              1.7.1
+* scipy                     1.16.0
 
 Example: 
 
     wget http://repo.continuum.io/miniconda/Miniconda3-3.7.0-Linux-x86_64.sh -O ~/miniconda.sh
     bash ~/miniconda.sh -b -p $HOME/miniconda
     export PATH="$HOME/miniconda/bin:$PATH"
-    conda install biopython
-    conda install matplotlib
-    conda install pandas
-    conda install scikit-learn
+    conda create -n ml-pipe1.7 python==3.11.13
+    conda activate ml-pipe1.7
+    conda install -c conda-forge scikit-learn biopython matplotlib numpy pandas scipy
+
     
 
 ## Basic ML Pipeline
