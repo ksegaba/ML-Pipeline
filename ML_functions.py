@@ -13,7 +13,7 @@ class fun(object):
 	def __init__(self, filename):
 		self.tokenList = open(filename, 'r')
 
-	def EstablishBalanced(df, classes, min_size, gs_n):
+	def EstablishBalanced(df, classes, min_size, gs_n): # gs_n is the same as args.n
 		""" Defines which instances will be used for each balanced dataset """
 		class_ids_dict = {}
 		for cl in classes:
@@ -30,20 +30,20 @@ class fun(object):
 			bal_list.append(tmp_l)
 		return bal_list
 
-	def param_space(ALG, GS_TYPE, n):
+	def param_space(ALG, GS_TYPE, n_iter):
 		"Define the parameter space for the grid search."
 		from numpy import random as npr
 
 		dist_max_features = npr.choice(list(np.arange(0.01, 1., 0.01)) +
-			['sqrt', 'log2', None], n)
-		dist_max_depth = npr.randint(1, 50, n)
-		dist_C = npr.uniform(1e-10, 10, n)
-		dist_degree = npr.randint(2, 4, n)
-		dist_gamma = npr.uniform(1e-7, 1, n)
-		dist_learnrate = npr.uniform(1e-5, 1, n)
-		dist_intscaling = npr.uniform(0, 10, n)
-		dist_penalty = npr.choice(['l1', 'l2'], n)
-		dist_nestimators = npr.choice(range(100, 1000, 100), n)
+			['sqrt', 'log2', None], n_iter)
+		dist_max_depth = npr.randint(1, 50, n_iter)
+		dist_C = npr.uniform(1e-10, 10, n_iter)
+		dist_degree = npr.randint(2, 4, n_iter)
+		dist_gamma = npr.uniform(1e-7, 1, n_iter)
+		dist_learnrate = npr.uniform(1e-5, 1, n_iter)
+		dist_intscaling = npr.uniform(0, 10, n_iter)
+		dist_penalty = npr.choice(['l1', 'l2'], n_iter)
+		dist_nestimators = npr.choice(range(100, 1000, 100), n_iter)
 
 		if GS_TYPE.lower() == 'rand' or GS_TYPE.lower() == 'random':
 			if ALG.lower() == 'rf':
@@ -53,10 +53,10 @@ class fun(object):
 			elif ALG.lower() == "svm":
 				parameters = {'C': dist_C}
 			elif ALG.lower() == 'svmpoly':
-				parameters = {'kernel': ['poly'] * n, 'C': dist_C,
+				parameters = {'kernel': ['poly'] * n_iter, 'C': dist_C,
 				'degree': dist_degree, 'gamma': dist_gamma}
 			elif ALG.lower() == 'svmrbf':
-				parameters = {'kernel': ['rbf'] * n, 'C': dist_C,
+				parameters = {'kernel': ['rbf'] * n_iter, 'C': dist_C,
 				'gamma': dist_gamma}
 			elif ALG.lower() == 'logreg':
 				parameters = {'C': dist_C, 'intercept_scaling': dist_intscaling,
@@ -109,23 +109,24 @@ class fun(object):
 		from sklearn.preprocessing import StandardScaler
 
 		start_time = time.time()
-		n_iter = 10
+		n_iter = 10 # a default sklearn RandomizedSearchCV parameter
 		parameters = fun.param_space(ALG, GS_TYPE, n_iter)
 
 		gs_results = pd.DataFrame(columns=['mean_test_score', 'params'])
 		
 		bal_ids_list = []
-		for j in range(n):
+		for j in range(n): # n is args.n
+			print("Balanced dataset %s of %s" % (j + 1, n))
 			# Build balanced dataframe and define x & y
 			df1 = pd.DataFrame(columns=list(df))
 			for cl in classes:
 				temp = df[df['Class'] == cl].sample(min_size, random_state=j)
-				df1 = pd.concat([df1, temp])
+				df1 = pd.concat([df1, temp]) # downsampled majority class
 			
 			bal_ids_list.append(list(df1.index))
 
-			if j < GS_REPS:
-				print("Round %s of %s"%(j+1,GS_REPS))
+			for i in range(GS_REPS):
+				print("Round %s of %s"%(i+1,GS_REPS))
 				y = df1['Class']
 				x = df1.drop(['Class'], axis=1)
 				
@@ -138,7 +139,6 @@ class fun(object):
 					model = LinearSVC()
 				elif ALG.lower() == 'svmrbf' or ALG.lower() == 'svmpoly':
 					from sklearn.svm import SVC
-					# x = StandardScaler().fit_transform(x)
 					model = SVC(probability=True)
 				elif ALG.lower() == "logreg":
 					from sklearn.linear_model import LogisticRegression
@@ -147,9 +147,11 @@ class fun(object):
 					from sklearn.ensemble import GradientBoostingClassifier
 					model = GradientBoostingClassifier()
 				
+				# Performance metric for grid search
 				if gs_score.lower() == 'auprc':
 					gs_score = 'average_precision'
 
+				# Perform grid search within a cross-validation scheme
 				if GS_TYPE.lower() == 'rand' or GS_TYPE.lower() == 'random':
 					grid_search = RandomizedSearchCV(model,
 						param_distributions=parameters, scoring=gs_score,
@@ -166,23 +168,24 @@ class fun(object):
 				grid_search.fit(x, y)
 				
 				# Add results to dataframe
-				j_results = pd.DataFrame(grid_search.cv_results_)
-				gs_results = pd.concat([gs_results, j_results[['params',
-					'mean_test_score']]])
+				i_results = pd.DataFrame(grid_search.cv_results_)
+				gs_results = pd.concat([gs_results, i_results[[
+					'mean_test_score', 'params']]])
+				print("KENIA", i_results.head(), i_results.shape)
+				print("KENIA", gs_results.head(), gs_results.shape)
 			
 		# Break params into seperate columns
 		gs_results2 = pd.concat([gs_results.drop(['params'], axis=1),
 			gs_results['params'].apply(pd.Series)], axis=1)
-		param_names = list(gs_results2)[1:]
+		param_names = list(gs_results2)[1:] # exclude the first column
 
 		if gs_full.lower() == 't' or gs_full.lower() == 'true':
 			gs_results2.to_csv(SAVE + "_GridSearchFULL.txt")
 		
-		# Find the mean score for each set of parameters & select the top set
+		# Find the mean 'mean_test_score' for each set of parameters & select the top set
 		gs_results_mean = gs_results2.groupby(param_names).mean()
-		gs_results_mean = gs_results_mean.sort_values('mean_test_score', 0,
-			ascending=False)
-		top_params = gs_results_mean.index[0]
+		gs_results_mean = gs_results_mean.sort_values('mean_test_score', axis=0, ascending=False)
+		top_params = gs_results_mean.index[0] # highest mean mean_test_score
 
 		print("Parameter sweep time: %f seconds" % (time.time() - start_time))
 
@@ -243,7 +246,7 @@ class fun(object):
 			# Add results to dataframe
 			j_results = pd.DataFrame(grid_search.cv_results_)
 			gs_results = pd.concat([gs_results, j_results[['params',
-				'mean_test_score']]])
+				"mean_test_score", "std_test_score"]]])
 		
 		# Break params into seperate columns
 		gs_results2 = pd.concat([gs_results.drop(['params'], axis=1),
@@ -256,9 +259,9 @@ class fun(object):
 		
 		# Find the mean score for each set of parameters & select the top set
 		gs_results_mean = gs_results2.groupby(param_names).mean()
-		gs_results_mean = gs_results_mean.sort_values('mean_test_score',
-			0, ascending=False)
-		top_params = gs_results_mean.index[0]
+		gs_results_mean = gs_results_mean.sort_values(by='mean_test_score', \
+			axis=0, ascending=False) # Modified by Kenia Segura Aba 03/14/2024
+		top_params = gs_results_mean.index[0][1:4] # Modified by Kenia Segura Aba, 08/01/2023
 		print(gs_results_mean.head())
 		
 		# Save grid search results
@@ -284,9 +287,9 @@ class fun(object):
 	def DefineReg_RandomForest(n_estimators, max_depth, max_features, n_jobs, j):
 		from sklearn.ensemble import RandomForestRegressor
 		reg = RandomForestRegressor(n_estimators=int(n_estimators),
-			max_depth=max_depth,
+			max_depth=int(max_depth), # 03/17/2024 modified by Kenia, added int() 
 			max_features=max_features,
-			criterion='mse',
+			criterion='squared_error', # 03/17/2024 'mse' modified to 'squared_error' Kenia to work with scikit-learn v1.2.2
 			random_state=j,
 			n_jobs=n_jobs)
 		return reg
@@ -385,11 +388,13 @@ class fun(object):
 		clf.fit(X,y)
 
 		notSel_proba = clf.predict_proba(df_notSel.drop(['Class'], axis=1))
+		print('KENIA notSel_proba', notSel_proba)
 		if apply_unk == True:
 			unk_proba = clf.predict_proba(df_unknowns.drop(['Class'], axis=1))
 		if not isinstance(test_df, str):
 			test_proba = clf.predict_proba(test_df.drop(['Class'], axis=1))
 			test_pred = clf.predict(test_df.drop(['Class'], axis=1))
+			print('KENIA test_proba', test_proba)
 
 		# Evaluate performance
 		if len(classes) == 2:
@@ -413,6 +418,7 @@ class fun(object):
 				index=df_notSel.index, columns=score_columns)
 			current_scores = pd.concat([df_sel_scores, df_notSel_scores],
 				axis=0)
+			print('KENIA current_scores', current_scores)
 			if apply_unk == True:
 				df_unk_scores = pd.DataFrame(data=unk_proba[:, POS_IND],
 					index=df_unknowns.index, columns=score_columns)
@@ -423,6 +429,7 @@ class fun(object):
 					index=test_df.index, columns=score_columns)
 				current_scores =  pd.concat([current_scores, df_test_scores],
 					axis=0)
+				print('KENIA test current_scores', current_scores)
 				scores_test = test_proba[:,POS_IND]
 				result_test = fun.Performance(test_df['Class'], test_pred,
 					scores_test, clf, clf2, classes, POS, POS_IND, NEG, ALG,
@@ -465,7 +472,8 @@ class fun(object):
 	def Run_Regression_Model(df, reg, cv_num, ALG, df_unknowns, test_df,
 		cv_sets, j):
 		from sklearn.model_selection import cross_val_predict
-		from sklearn.metrics.scorer import make_scorer
+		#from sklearn.metrics.scorer import make_scorer
+		from sklearn.metrics import make_scorer # modified by Kenia for scikit-learn v0.24.2
 		from sklearn.metrics import mean_squared_error, r2_score
 		from sklearn.metrics import explained_variance_score
 		# Data from balanced dataframe
@@ -500,14 +508,14 @@ class fun(object):
 			unk_pred = reg.predict(df_unknowns.drop(['Y'], axis=1))
 			unk_pred_df = pd.DataFrame(data=unk_pred, index=df_unknowns.index,
 				columns=['pred'])
-			cv_pred_df = cv_pred_df.append(unk_pred_df)
+			cv_pred_df = pd.concat([cv_pred_df, unk_pred_df]) # 03/17/2024 .append changed to pd.concat for Pandas > 2.0
 
 		if not isinstance(test_df, str):
 			test_y = test_df['Y']
 			test_pred = reg.predict(test_df.drop(['Y'], axis=1))
 			test_pred_df = pd.DataFrame(data=test_pred, index=test_df.index,
 				columns=['pred'])
-			cv_pred_df = cv_pred_df.append(test_pred_df)
+			cv_pred_df = pd.concat([cv_pred_df, test_pred_df]) # 03/17/2024 .append changed to pd.concat for Pandas > 2.0
 
 			# Get performance stats
 			mse_test = mean_squared_error(test_y, test_pred)
