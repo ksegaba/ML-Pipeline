@@ -121,14 +121,17 @@ def main():
 		sys.exit(0)
 	args = parser.parse_args()
 	
-	# Complex transformations of input parameters
-	if ',' in args.cl_train:
+	''' Complex transformations of input training & testing classes
+	if args.cl_train is a string with comma-separated values, convert it to a
+	list of integers or strings. '''
+	if ',' in args.cl_train: # training classes
 		if args.cl_train == '1,0':
 			args.cl_train = [1,0]
 		else:
 			args.cl_train = args.cl_train.strip().split(',')
 		args.pos = args.cl_train[0]
-	if args.apply != 'all':
+	
+	if args.apply != 'all': # testing classes
 		if ',' in args.apply:
 			args.apply = args.apply.split(',')
 		else:
@@ -142,9 +145,9 @@ def main():
 	### Load and Process Input Data ###
 	###################################
 
-	df = pd.read_csv(args.df, sep=args.sep, index_col=0)
+	df = pd.read_csv(args.df, sep=args.sep, index_col=0) # feature & class table
 
-	# If features  and class info are in separate files, merge them: 
+	# If features and class info are in separate files, merge them: 
 	if args.df2 != '':
 		start_dim = df.shape
 		df_class = pd.read_csv(args.df2, sep=args.sep, index_col=0)
@@ -162,7 +165,10 @@ def main():
 		with open(args.feat) as f:
 			features = f.read().strip().splitlines()
 			features = ['Class'] + features
-		df = df.loc[:, features]
+		try:
+			df = df.loc[:, features]
+		except KeyError:
+			df = df.loc[:, df.columns.isin(features)] # added by Kenia 5/14/2025
 
 	# Check for Nas
 	if df.isnull().values.any():
@@ -188,9 +194,10 @@ def main():
 			df = pd.DataFrame(X_scaled, columns=X.columns, index=X.index)
 			df.insert(loc=0, column='Class', value=y)
 
-
-	# Set up dataframe of unknown instances that the final models will be 
-	# applied to and drop unknowns from df for model building
+	''' Create a dataframe (df_unknowns) that contains non-training instances
+ 	that were not included in args.cl_train, but are in the dataframe provided
+	through args.df. The final models will be applied to df_unknowns (test set)
+	and drop instances in df_unknowns from df for model building. '''
 	if args.cl_train != 'all' and '' not in args.apply:
 		apply_unk = True
 		# if apply to all, select all instances with class not in args.cl_train
@@ -206,7 +213,7 @@ def main():
 	if args.cl_train != 'all':
 		df = df[(df['Class'].isin(args.cl_train))]
 
-	# Separte test intances from training/validation 
+	# Separate test intances from training/validation 
 	if args.test !='':
 		df_all = df.copy()
 		print('Removing test instances to apply model on later...')
@@ -220,10 +227,10 @@ def main():
 			test_df = df.loc[test_instances, :]
 			df = df.drop(test_instances)
 
-	else:
+	else: # no test instances were provided; this model can be used for inference
 		test_df = 'None'
 		test_instances = 'None'
-		df_all = df.copy()
+		df_all = df.copy() # feature table with only training instances
 
 	# Generate training classes list. If binary, establish POS and NEG classes. 
 	# Set grid search scoring: roc_auc for binary, f1_macro for multiclass
@@ -346,22 +353,26 @@ def main():
 	start_time = time.time()
 	print("\n\n===>  ML Pipeline started  <===")
 
-	results = []
-	results_test = []
+	''' Create a dataframe that contains the classification probabilities for
+	the label. Each column represents the probabilities for each training
+	repetition (args.)
+	
+	df_all contains both training and test instances (if provided in args.df)'''
 	df_proba = pd.DataFrame(data=df_all['Class'], index=df_all.index,
-		columns=['Class'])
-
+		columns=['Class']) 
 	if apply_unk == True:
 		df_proba2 = pd.DataFrame(data=df_unknowns['Class'],
 			index=df_unknowns.index, columns=['Class'])
 		df_proba = pd.concat([df_proba,df_proba2], axis=0)
 
-	for j in range(len(balanced_ids)):
+	results = []
+	results_test = []
+	for j in range(len(balanced_ids)): # should be args.n (number of balanced datasets)
 
 		print("  Round %s of %s" % (j + 1, len(balanced_ids)))
 
 		#Make balanced datasets
-		df1 = df[df.index.isin(balanced_ids[j])]
+		df1 = df[df.index.isin(balanced_ids[j])] # df is only the training data
 		df_notSel = df[~df.index.isin(balanced_ids[j])]
 
 		# Remove non-training classes from not-selected dataframe
@@ -373,7 +384,7 @@ def main():
 			parameters_used = [args.n_estimators, args.max_depth,
 				args.max_features]
 			clf = ML.fun.DefineClf_RandomForest(args.n_estimators,
-				args.max_depth, args.max_features, j, args.n_jobs)
+				int(args.max_depth), args.max_features, j, args.n_jobs)
 		elif args.alg.lower() == "svm":
 			parameters_used = [args.C]
 			clf = ML.fun.DefineClf_LinearSVM(args.C, j)
@@ -407,6 +418,7 @@ def main():
 		results.append(result)
 		try:
 			df_proba = pd.concat([df_proba, current_scores], axis=1)
+			print('KENIA df_proba', df_proba)
 		except:
 			print('\n\nSomething went wrong merging the probability scores...'
 				'Check if you have duplicate instance names in your df!')
@@ -424,14 +436,14 @@ def main():
 	joblib.dump(clf,args.save + "_models.pkl")
 
 	## Make empty dataframes
-	conf_matrices = pd.DataFrame(columns=np.insert(arr=classes.astype(np.str),
+	conf_matrices = pd.DataFrame(columns=np.insert(arr=np.array(classes).astype(str),
 		obj=0, values='Class'), dtype=float)
 	imp = pd.DataFrame(index=list(df.drop(['Class'], axis=1)))
 	threshold_array = []
 	AucRoc_array = []
 	AucPRc_array = []
 	accuracies = []
-	f1_array = np.array([np.insert(arr=classes.astype(np.str),
+	f1_array = np.array([np.insert(arr=np.array(classes).astype(str),
 		obj=0, values='M')])
 
 	count = 0
@@ -441,6 +453,7 @@ def main():
 			cmatrix = pd.DataFrame(r['cm'], columns=classes)
 			cmatrix['Class'] = classes
 			conf_matrices = pd.concat([conf_matrices, cmatrix])
+			print('KENIA conf_matrices', conf_matrices)
 
 		# For binary predictions
 		if 'importances' in r:
@@ -478,7 +491,7 @@ def main():
 		AucRoc_test_array = []
 		AucPRc_test_array = []
 		accuracies_test = []
-		f1_array_test = np.array([np.insert(arr=classes.astype(np.str),
+		f1_array_test = np.array([np.insert(arr=np.array(classes).astype(str),
 			obj=0, values='M')])
 
 		for r_test in results_test:
@@ -639,6 +652,7 @@ def main():
 		# Determine final prediction call
 		# using the final_threshold on the mean predicted probability.
 		proba_columns = [c for c in df_proba.columns if c.startswith('score_')]
+		print('KENIA df_proba.columns', df_proba.columns)
 
 		df_proba.insert(loc=1, column='Median',
 			value=df_proba[proba_columns].median(axis=1))
@@ -651,8 +665,16 @@ def main():
 			value=df_proba['Class'])
 		df_proba[Pred_name] = np.where(df_proba['Mean'] >= final_threshold,
 			args.pos, NEG)
+		print('KENIA df_proba.columns', df_proba.columns, df_proba)
 
 		# Summarize % of each class predicted as POS and NEG		
+		# Note 02/19/2024: Brianna will change this code block to print the 
+		# confusion matrix for testing only instead of combined. Or she can just
+		# add a new code block with testing only and keep summary_df_proba the same.
+		# The code block in the multiclass will need to be changed too.
+		# Then, she'll add the testing confusion matrix to the code where 
+		# "Count and percent of instances of each class (row) predicted as a class (col):"
+		# is at.
 		summary_df_proba = df_proba[['Class', Pred_name, 'Mean']].groupby([
 			'Class', Pred_name]).agg('count').unstack(level=1)
 		summary_df_proba.columns = summary_df_proba.columns.droplevel()
