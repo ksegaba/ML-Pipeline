@@ -359,7 +359,22 @@ class fun(object):
 	def BuildModel_Apply_Performance(df, clf, cv_num, df_notSel, apply_unk,
 		df_unknowns, test_df, classes, POS, NEG, j, ALG, THRSHD_test):
 		from sklearn.model_selection import cross_val_predict
-
+		'''
+		Arguments:
+		- df: balanced dataframe with training instances
+		- clf: classifier to train
+		- cv_num: number of cross-validation folds
+		- df_notSel: dataframe with instances not selected for training
+		- apply_unk: boolean indicating whether to apply the model to the inference set
+		- df_unknowns: dataframe with instances to infer labels for (optional)
+		- test_df: dataframe with test instances (optional)
+		- classes: list of classes in ...
+		- POS: label of the positive class
+		- NEG: label of the negative class
+		- j: index of the balanced dataset (for reproducibility)
+		- ALG: algorithm used for classification
+		- THRSHD_test: threshold for test set predictions (if applicable)
+		'''
 		# Data from balanced dataframe
 		y = df['Class']
 		X = df.drop(['Class'], axis=1)
@@ -375,11 +390,11 @@ class fun(object):
 		else:
 			clf2 = 'pass'
 
-		# Obtain the predictions using 10 fold cross validation
+		# Obtain the predictions for the training set using 10 fold cross validation
 		# (uses KFold cv by default):
 		cv_proba = cross_val_predict(estimator=clf, X=X, y=y, cv=int(cv_num),
 			method='predict_proba')
-		cv_pred = cross_val_predict(estimator=clf, X=X, y=y, cv=cv_num)
+		cv_pred = cross_val_predict(estimator=clf, X=X, y=y, cv=int(cv_num))
 
 		# Fit a model using all data and apply to 
 		# (1) instances that were not selected using cl_train
@@ -387,10 +402,16 @@ class fun(object):
 		# (3) test instances
 		clf.fit(X,y)
 
+		# 1. Apply to instances not selected for training
 		notSel_proba = clf.predict_proba(df_notSel.drop(['Class'], axis=1))
 		print('KENIA notSel_proba', notSel_proba)
+
+		# 2. Apply to instances with unknown class (inference set)
 		if apply_unk == True:
 			unk_proba = clf.predict_proba(df_unknowns.drop(['Class'], axis=1))
+			print('KENIA unk_proba', unk_proba)
+
+		# 3. Apply to test set instances
 		if not isinstance(test_df, str):
 			test_proba = clf.predict_proba(test_df.drop(['Class'], axis=1))
 			test_pred = clf.predict(test_df.drop(['Class'], axis=1))
@@ -404,13 +425,15 @@ class fun(object):
 					POS_IND = i
 					break
 				i += 1
-			scores = cv_proba[:, POS_IND]
+			print('KENIA POS_IND', POS_IND, POS)
+			cv_scores = cv_proba[:, POS_IND] # KENIA 07/28/2025: scores changed to cv_scores
 
-			# Generate run statistics from balanced dataset scores
-			result = fun.Performance(y, cv_pred, scores, clf, clf2, classes,
+			# Generate run statistics from the balanced training set scores
+			result = fun.Performance(y, cv_pred, cv_scores, clf, clf2, classes,
 				POS, POS_IND, NEG, ALG, THRSHD_test)
 
-			#Generate data frame with all scores
+			# Generate data frame with all scores (classification probabilities
+			# of the positive class only)
 			score_columns=["score_%s"%(j)]
 			df_sel_scores = pd.DataFrame(data=cv_proba[:, POS_IND], 
 				index=df.index, columns=score_columns)
@@ -418,18 +441,21 @@ class fun(object):
 				index=df_notSel.index, columns=score_columns)
 			current_scores = pd.concat([df_sel_scores, df_notSel_scores],
 				axis=0)
-			print('KENIA current_scores', current_scores)
+			print('KENIA current_scores training', current_scores)
+			
 			if apply_unk == True:
 				df_unk_scores = pd.DataFrame(data=unk_proba[:, POS_IND],
 					index=df_unknowns.index, columns=score_columns)
 				current_scores =  pd.concat([current_scores,df_unk_scores],
 					axis=0)
+			print('KENIA current_scores inference', current_scores)
+			
 			if not isinstance(test_df, str):
 				df_test_scores = pd.DataFrame(data=test_proba[:,POS_IND],
 					index=test_df.index, columns=score_columns)
 				current_scores =  pd.concat([current_scores, df_test_scores],
 					axis=0)
-				print('KENIA test current_scores', current_scores)
+				print('KENIA current_scores test', current_scores)
 				scores_test = test_proba[:,POS_IND]
 				result_test = fun.Performance(test_df['Class'], test_pred,
 					scores_test, clf, clf2, classes, POS, POS_IND, NEG, ALG,
@@ -465,9 +491,9 @@ class fun(object):
 
 		# also return the fitted clf to be saved, Peipei Wang, 12/06/2021
 		if not isinstance(test_df, str):
-			return clf, result,current_scores,result_test
+			return clf, result, current_scores, result_test
 		else:
-			return clf, result,current_scores
+			return clf, result, current_scores
 
 	def Run_Regression_Model(df, reg, cv_num, ALG, df_unknowns, test_df,
 		cv_sets, j):
@@ -540,7 +566,7 @@ class fun(object):
 		else:
 			return reg, result, cv_pred_df, importances
 
-	def Performance(y, cv_pred, scores, clf, clf2, classes, POS, POS_IND,
+	def Performance(y, pred, scores, clf, clf2, classes, POS, POS_IND,
 		NEG, ALG, THRSHD_test):
 		""" For binary predictions: This function calculates the best threshold
 		for defining POS/NEG from the prediction probabilities by maximizing
@@ -550,7 +576,7 @@ class fun(object):
 		from sklearn.metrics import average_precision_score, confusion_matrix
 
 		# Gather balanced model scoring metrics
-		cm = confusion_matrix(y, cv_pred, labels=classes)
+		cm = confusion_matrix(y, pred, labels=classes)
 
 		# Determine the best threshold cutoff for the balanced run
 		y1 = y.replace(to_replace=[POS, NEG], value=[1,0])
