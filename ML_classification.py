@@ -196,8 +196,8 @@ def main():
 
 	''' Create a dataframe (df_unknowns) that contains non-training instances
  	that were not included in args.cl_train, but are in the dataframe provided
-	through args.df. The final models will be applied to df_unknowns (test set)
-	and drop instances in df_unknowns from df for model building. '''
+	through args.df. The final models will be applied to df_unknowns (inference
+	set) to predict labels for these instances.'''
 	if args.cl_train != 'all' and '' not in args.apply:
 		apply_unk = True
 		# if apply to all, select all instances with class not in args.cl_train
@@ -205,7 +205,7 @@ def main():
 			df_unknowns = df[(~df['Class'].isin(args.cl_train))]
 		else: # apply to specified classes
 			df_unknowns = df[(df['Class'].isin(args.apply))]
-	else:
+	else: # A set of instances to infer labels for was not provided
 		apply_unk = False
 		df_unknowns = ''
 
@@ -226,7 +226,8 @@ def main():
 			test_instances = [int(x) for x in test_instances]
 			test_df = df.loc[test_instances, :]
 			df = df.drop(test_instances)
-
+		assert df_all.shape[0] != df.shape[0], "KENIA Error: test instances were not removed from training set"
+	
 	else: # no test instances were provided; this model can be used for inference
 		test_df = 'None'
 		test_instances = 'None'
@@ -357,21 +358,24 @@ def main():
 	the label. Each column represents the probabilities for each training
 	repetition (args.)
 	
-	df_all contains both training and test instances (if provided in args.df)'''
+	df_all contains both training and test instances (if provided in args.df).
+	It does not include the inference set because it was dropped from df, which
+	df_all is based on.'''
 	df_proba = pd.DataFrame(data=df_all['Class'], index=df_all.index,
-		columns=['Class']) 
-	if apply_unk == True:
+		columns=['Class'])
+	
+	if apply_unk == True: # An inference set (df_unknowns) was provided
 		df_proba2 = pd.DataFrame(data=df_unknowns['Class'],
 			index=df_unknowns.index, columns=['Class'])
 		df_proba = pd.concat([df_proba,df_proba2], axis=0)
 
-	results = []
-	results_test = []
+	results = [] # balanced training set performance results
+	results_test = [] # test set performance results
 	for j in range(len(balanced_ids)): # should be args.n (number of balanced datasets)
 
 		print("  Round %s of %s" % (j + 1, len(balanced_ids)))
 
-		#Make balanced datasets
+		# Make balanced datasets
 		df1 = df[df.index.isin(balanced_ids[j])] # df is only the training data
 		df_notSel = df[~df.index.isin(balanced_ids[j])]
 
